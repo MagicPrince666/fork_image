@@ -12,12 +12,15 @@
 
 #define TESTFORK MultipleIot::GetInstance()
 
+struct ProcInfo {
+    pid_t pid = 0;        //记录pid
+    uint32_t count = 5;   //默认5次
+};
+
 class MultipleIot {
  public:
    static MultipleIot* GetInstance();
    ~MultipleIot();
-
-   std::unordered_map<std::string, pid_t> GetPids();
 
    void Start();
    void Runing();
@@ -29,7 +32,7 @@ class MultipleIot {
    void QiutProcess();
 
    static MultipleIot *instance_;
-   std::atomic<int> child_pid_;
-   std::unordered_map<std::string, pid_t> working_process_;
+   std::atomic<pid_t> child_pid_;
+   std::unordered_map<std::string, ProcInfo> working_process_;
    std::thread check_thread_;
 };

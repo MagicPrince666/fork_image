@@ -22,10 +22,10 @@ MultipleIot::~MultipleIot () {
     if (check_thread_.joinable()) {
         check_thread_.join();
 	}
-    for (std::unordered_map<std::string, pid_t>::iterator iter = working_process_.begin(); iter != working_process_.end(); iter++) {
-        spdlog::info("program {} pid {}", iter->first, iter->second);
+    for (std::unordered_map<std::string, ProcInfo>::iterator iter = working_process_.begin(); iter != working_process_.end(); iter++) {
+        spdlog::info("program {} pid {}", iter->first, iter->second.pid);
         // 清場收工
-        kill(iter->second, SIGTERM);
+        kill(iter->second.pid, SIGTERM);
     }
 }
 
@@ -38,22 +38,29 @@ MultipleIot *MultipleIot::GetInstance() {
 
 void MultipleIot::QiutProcess() {
     char *arg_list[] = {nullptr, nullptr};
+
     while(1) {
         // 每隔一段時間檢查一次進程
-        for (std::unordered_map<std::string, pid_t>::iterator iter = working_process_.begin(); iter != working_process_.end(); iter++) {
-            spdlog::info("program {} pid {}", iter->first, iter->second);
+        for (std::unordered_map<std::string, ProcInfo>::iterator iter = working_process_.begin(); iter != working_process_.end(); iter++) {
+            ProcInfo tmpinfo = (*iter).second;
+            spdlog::info("program {} pid {} count {}", iter->first, tmpinfo.pid, tmpinfo.count);
             // kill(iter->first, SIGTERM);
-            std::string process_exists = "/proc/" + std::to_string(iter->second);
+            std::string process_exists = "/proc/" + std::to_string(tmpinfo.pid);
             if (-1 == access(process_exists.c_str(), F_OK)) {
                 spdlog::error("Process {} quit!", iter->first);
-                // 檢查pid不在運行
-                pid_t tmp_pid = SpawnChild(iter->first, arg_list);
-                if(tmp_pid > 0) {
-                    spdlog::info("Process {} restart!", iter->first);
-                    // 更新pid
-                    working_process_[iter->first] = tmp_pid;
+                if(--tmpinfo.count > 0) { //重启次数减1
+                    // 檢查pid不在運行
+                    pid_t tmp_pid = SpawnChild(iter->first, arg_list);
+                    if(tmp_pid > 0) {
+                        spdlog::info("Process {} restart!", iter->first);
+                        // 更新pid
+                        tmpinfo.pid = tmp_pid;
+                        working_process_[iter->first] = tmpinfo;
+                    }
+                } else {
+                    // 崩溃超过5次就不再拉起进程
+                    working_process_.erase(iter->first);
                 }
-                // working_process_.erase(iter->first);
             }
         }
         std::this_thread::sleep_for(std::chrono::seconds(1));
@@ -82,19 +89,18 @@ void MultipleIot::Start() {
     spdlog::info("!!!!!!!!!!!!!Start fork test!!!!!!!!!!!!");
 }
 
-std::unordered_map<std::string, pid_t> MultipleIot::GetPids() {
-    return working_process_;
-}
-
 void MultipleIot::Runing() {
     char *arg_list[] = {nullptr, nullptr};
+
     for (std::string itvec : iots) {
         if (-1 == access(itvec.c_str(), F_OK)) {
             spdlog::error("Program file {} does not exist in current directory!", itvec.c_str());
         } else {
             pid_t tmp_pid = SpawnChild(itvec, arg_list);
             if(tmp_pid > 0) {
-                working_process_[itvec] = tmp_pid;
+                ProcInfo tmp;
+                tmp.pid = tmp_pid;
+                working_process_[itvec] = tmp;
             }
         }
     }
